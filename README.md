@@ -6,18 +6,25 @@
 * 模型文件HuggingFace: https://huggingface.co/leosong/Qwen2.5-1.5B-GRDPO
 * 模型文件Modelscope: https://www.modelscope.cn/models/leosongwei/Qwen2.5-1.5B-GRDPO/summary （草？还要审核？）
 
-
-Large Reasoning Model时代的强化学习体验卡？不知道，可能我对强化学习的理解并不正确。总之这是一个做得很糙的东西，好些代码还是AI写的，看看你能不能运行吧。
+Large Reasoning Model时代的强化学习体验卡？不知道，可能我对强化学习的理解并不正确。总之这是一个做得很糙的东西，好些代码还是AI写的，看看你能不能运行吧，代码还挺简单的。
 
 公式大致如下，从DPO来折腾了一下，最后算是比较像GRPO，但是删除了一大堆东西，未必稳定：
 
 $$
-\mathcal{L} = -\mathbb{E} \left[ \log \sigma \left( \beta \log \pi(y_w|x) - \beta \log \pi(y_l|x) \right) \right],
+\mathcal{L} = -\mathbb{E} \left[ \log \sigma \left( \beta \log \pi(y_w|x) - \beta \log \pi(y_l|x) \right) \right]
 $$
+
+## 验证集得分
+
+每个问题产生10个输出，有一个对的就算得分：
+
+* Qwen2.5-3B-Instruct: 0.6
+* Qwen2.5-1.5B-GRDPO（这次训练出来的）: 0.46，可谓效果拔群？？？
+* Qwen2.5-1.5B-Instruct: 0.1
 
 ## 数据集
 
-`datasets/OpenR1-Math-220k`里面的这玩意儿，取了OpenR1-Math-220k里面能通过取最后一行，用math-verify验证结果的两千多道题。
+`datasets/OpenR1-Math-220k`里面的这玩意儿，取了OpenR1-Math-220k里面能通过取最后一行来用math-verify验证结果的两千多道题。
 
 训练数据：这两千来道题里面前面519道（为什么是519？那时恰好按了一下^C）。
 验证数据：这两千来道题里面的`[1000:1100]`道。
@@ -34,23 +41,18 @@ $$
 
 ## 训练
 
-* 每个问题生成20个例子，按奖励高低排序，好的取前10个，坏的去后10个。每个好的对每个坏的求损失，那么可以得到100个损失。
-* 每一步调一次优化器。那么5个题总共500个损失，先梯度裁剪，然后调用优化器。
+* 每一步给予5个问题。
+* 每个问题生成20个例子，按奖励高低排序，好的取前10个，坏的取后10个。每个好的对每个坏的求损失，那么可以得到100个损失。
+* 每一步调一次优化器。
+
+那么每一步5个题总共500个损失，先梯度裁剪，然后调用优化器。
 
 ## 奖励规则
 
 1. 正确性：0与1，不必多说。
 2. 有没有answer tag，1/3分。
 3. answer tag在不在尾巴上，1/3分。
-4. 最草的来了：长度惩罚，1/3分，800开始衰减，到1000就不得分，因为我显存不够！
-
-## 验证集得分
-
-每个问题产生10个输出，有一个对的就算得分：
-
-* Qwen2.5-3B-Instruct: 0.6
-* Qwen2.5-1.5B-Instruct-RL（这次训练出来的）: 0.46，可谓效果拔群？？？
-* Qwen2.5-1.5B-Instruct-RL: 0.1
+4. 最草的来了：因为我显存不够！所以**长度惩罚**！默认得1/3分，800开始衰减，到1000就不得分。
 
 ## 答案的风格？
 
@@ -59,7 +61,6 @@ $$
 对于未训练的1.5B模型，其输出是这样的。充满了LaTeX格式，且由于太长而被截断了：
 
 ```txt
-Person B's speed increases by 60%, and as a result, both Person A and Person B arrive at place $B$ at the same time. The distance between $A$ and $B$ is $\qquad$ kilometers.
 Solution process: Let the distance between $A$ and $B$ be $x$ kilometers, then we have $$\begin{cases} \frac{x-5}{v_{A}}=\frac{x+5}{v_{B}} \\ \frac{\frac{x}{6}}{v_{B}}=\frac{\frac{x}{6}}{v_{A}}(1+60\%)\\ \end{cases}$$
 Solving this system of equations, we get $x= \boxed{60}$.
 
@@ -128,7 +129,6 @@ However, there seems to be an error in the setup or simplification process. Let'
 下面是强化学习过的模型的输出，比较简短，格式比较朴实，且在最后包含answer tag（虽然这个例子中答错了）：
 
 ```txt
-Person B's speed increases by 60%, and as a result, both Person A and Person B arrive at place $B$ at the same time. The distance between $A$ and $B$ is $\qquad$ kilometers.
 Solution process: Let's denote the total distance between A and B as D kilometers. Person A travels at 1.2 times Person B's speed, so we can say A = 1.2B.
 
 Person B bikes for 5 km before their bike breaks down, so they have 0.5D - 5 left to travel.
@@ -160,4 +160,6 @@ Answer: <answer>The distance between A and B is 15 kilometers.</answer>
 
 ## 局限
 
-因为我在1000 token时截断生成，以及1.5B模型的指令跟随能力不太行经常不生成answer tag，所以这整个训练可能只是增强了模型控制输出长度，并在结尾生成answer tag，导致评分上升，而并没有提升模型的数学能力。
+因为我在1000 token时截断生成，以及1.5B模型的指令跟随能力不太行经常不生成answer tag，所以1.5B原模型的评分会很低。
+
+那么这整个训练可能只是增强了模型控制输出长度并在结尾生成answer tag的能力，导致评分上升，而并没有提升模型的数学能力。
