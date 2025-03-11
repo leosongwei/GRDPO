@@ -3,6 +3,7 @@
 * 硬件需求：1片4090（不过并没有用完全部的显存就是了）。
 * 基模型：Qwen2.5-1.5B-Instruct
 * 训练方式：LoRA微调
+* 模型文件HuggingFace: https://huggingface.co/leosong/Qwen2.5-1.5B-GRDPO
 * 模型文件Modelscope: https://www.modelscope.cn/models/leosongwei/Qwen2.5-1.5B-GRDPO/summary （草？还要审核？）
 
 
