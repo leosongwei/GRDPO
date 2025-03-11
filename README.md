@@ -3,6 +3,8 @@
 * 硬件需求：1片4090（不过并没有用完全部的显存就是了）。
 * 基模型：Qwen2.5-1.5B-Instruct
 * 训练方式：LoRA微调
+* 模型文件Modelscope: https://www.modelscope.cn/models/leosongwei/Qwen2.5-1.5B-GRDPO/summary （草？还要审核？）
+
 
 Large Reasoning Model时代的强化学习体验卡？不知道，可能我对强化学习的理解并不正确。总之这是一个做得很糙的东西，好些代码还是AI写的，看看你能不能运行吧。
 
