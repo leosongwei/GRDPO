@@ -14,8 +14,8 @@ $$
 \mathcal{L}_\text{GRDPO} = -\mathbb{E} _{(x, (y_w, y_l) \in Y_w \times Y_l)} \left[ \log \sigma \beta \left( \log \pi(y_w|x) - \log \pi(y_l|x) \right) \right]
 $$
 
-* $ x $ 为输入的问题。
-* $ Y_w $ 和 $ Y_l $ 为正负样本集，由 $x$ 经多次采样得来，奖励考前的一半为 $ Y_w $ ，靠后的为 $ Y_l $ 。
+* $x$ 为输入的问题。
+* $Y_w$ 和 $Y_l$ 为正负样本集，由 $x$ 经多次采样得来，奖励靠前的一半为 $Y_w$ ，靠后的为 $Y_l$ 。
 * 我显存不够，不想要除了正在被训练的模型以外的别的东西。
 
 ## 验证集得分
