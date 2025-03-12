@@ -11,7 +11,7 @@ Large Reasoning Model时代的强化学习体验卡？不知道，可能我对�
 公式大致如下，从DPO来折腾了一下，最后算是比较像GRPO，但是删除了一大堆东西，未必稳定：
 
 $$
-\mathcal{L}_\text{GRDPO} = -\mathbb{E}_{(x, (y_w, y_l) \in Y_w \times Y_l)} \left[ \log \sigma \beta \left( \log \pi(y_w|x) - \log \pi(y_l|x) \right) \right]
+\mathcal{L}_\text{GRDPO} = -\mathbb{E} _{(x, (y_w, y_l) \in Y_w \times Y_l)} \left[ \log \sigma \beta \left( \log \pi(y_w|x) - \log \pi(y_l|x) \right) \right]
 $$
 
 * $ x $ 为输入的问题。
