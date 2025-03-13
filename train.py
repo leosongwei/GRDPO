@@ -2,6 +2,8 @@ import os
 import gc
 import json
 import re
+import sys
+sys.float_info.dig = 4
 
 from question_iterator import QuestionIterator
 
