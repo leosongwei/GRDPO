@@ -31,8 +31,8 @@ train_name = "20250313_1"
 # 配置
 model_dir = "/home/leo/NLP/models/Qwen-VL/Qwen2.5-1.5B-Instruct"
 loss_compute_group_size = 1
-sample_counts = {"easy": 1, "medium": 2, "hard":2} # 每步题目配比
-save_per_groups = 2
+sample_counts = {"easy": 2, "medium": 2, "hard":1} # 每步题目配比
+save_per_groups = 10
 max_epochs = 10
 
 # 优化器
@@ -43,6 +43,7 @@ lora_rank = 16
 lora_alpha = 32
 
 # RL
+beta = 0.1
 ## 长度惩罚参数
 start_to_punish = 800
 max_new_tokens = 1000
@@ -56,8 +57,11 @@ gen_config.num_return_sequences = 20
 gen_config.use_cache = True
 # ---------------------------------------------
 
+os.makedirs("./runs", exist_ok=True)
+os.makedirs("./runs/"+train_name, exist_ok=True)
+
 log_writer = SummaryWriter(
-    log_dir="./runs",
+    log_dir="./runs/"+train_name,
     flush_secs=1,
     comment=train_name
 )
@@ -182,6 +186,9 @@ def calculate_rewards(inputs, responses, item, tokenizer):
 # 训练循环
 os.makedirs("outputs", exist_ok=True)
 
+# save_path = f"outputs/step_0"
+# lora_model.save_pretrained(save_path, save_embedding_layers=False)
+
 for group_idx, group_items in enumerate(dataset):
     step_id = group_idx
     optimizer.zero_grad()
@@ -212,7 +219,7 @@ for group_idx, group_items in enumerate(dataset):
         rewards, lengths = calculate_rewards(inputs, responses, item, tokenizer)
         all_rewards += rewards
         all_lengths += lengths
-        print(f"rewards: {[f"{float(r):.3f}" for r in rewards]}")
+        print(f"rewards: {[f'{float(r):.3f}' for r in rewards]}")
         print(f"out lengths: {lengths}")
         sorted_pairs = sorted(zip(responses, rewards), key=lambda x: -x[1])
         sorted_responses = [x[0] for x in sorted_pairs]
@@ -232,7 +239,7 @@ for group_idx, group_items in enumerate(dataset):
                     lora_model, inputs,
                     good=good,
                     bads=bads_group,
-                    beta=0.1
+                    beta=beta
                 ).sum()
                 loss.backward()
                 total_loss += float(loss)
@@ -245,14 +252,14 @@ for group_idx, group_items in enumerate(dataset):
 
     # 记录日志
     avg_loss = total_loss / (len(group_items) * len(good_responses) * len(bad_responses))
-    print(f"Group {step_id} Loss: {avg_loss:.4f}")
+    print(f"Step {step_id} Group Loss: {avg_loss:.4f}")
     avg_reward = float(statistics.mean(all_rewards))
     print(f"Group avg reward: {avg_reward:.3f}")
     avg_length = float(statistics.mean(all_lengths))
     print(f"Group avg length: {avg_length:.3f}")
-    log_writer.add_scalar("avg_loss", avg_loss)
-    log_writer.add_scalar("avg_reward", avg_reward)
-    log_writer.add_scalar("avg_length", avg_length)
+    log_writer.add_scalar("avg_loss", avg_loss, global_step=step_id)
+    log_writer.add_scalar("avg_reward", avg_reward, global_step=step_id)
+    log_writer.add_scalar("avg_length", avg_length, global_step=step_id)
     
     # 保存模型
     if step_id % save_per_groups == 0 and group_idx != 0:
@@ -261,3 +268,5 @@ for group_idx, group_items in enumerate(dataset):
         print(f"Model saved at {save_path}")
 
     print('-----------------------------------')
+
+log_writer.close()
