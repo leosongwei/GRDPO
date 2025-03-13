@@ -2,8 +2,8 @@ import os
 import gc
 import json
 import re
-import sys
-sys.float_info.dig = 4
+import statistics
+from typing import List
 
 from question_iterator import QuestionIterator
 
@@ -17,18 +17,53 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     GenerationConfig,
-    AutoConfig,
-    DataCollatorForLanguageModeling
+    AutoConfig
 )
 from peft import get_peft_model, LoraConfig
 from torch.optim import AdamW
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 import bitsandbytes as bnb
+from torch.utils.tensorboard import SummaryWriter
 
-# sudo nvidia-smi -i 0 -pl 320
+# --------------------------------------------
+# tensorboard config
+train_name = "20250313_1"
+# 配置
+model_dir = "/home/leo/NLP/models/Qwen-VL/Qwen2.5-1.5B-Instruct"
+loss_compute_group_size = 1
+sample_counts = {"easy": 1, "medium": 2, "hard":2} # 每步题目配比
+save_per_groups = 2
+max_epochs = 10
+
+# 优化器
+lr=1e-5
+
+# LoRA
+lora_rank = 16
+lora_alpha = 32
+
+# RL
+## 长度惩罚参数
+start_to_punish = 800
+max_new_tokens = 1000
+
+# 生成配置
+gen_config = GenerationConfig.from_pretrained(model_dir)
+gen_config.max_new_tokens = max_new_tokens
+gen_config.temperature = 0.7
+gen_config.do_sample = True
+gen_config.num_return_sequences = 20
+gen_config.use_cache = True
+# ---------------------------------------------
+
+log_writer = SummaryWriter(
+    log_dir="./runs",
+    flush_secs=1,
+    comment=train_name
+)
 
 # 加载原始模型
-model_dir = "/home/leo/NLP/models/Qwen-VL/Qwen2.5-1.5B-Instruct"
+
 tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True)
 config = AutoConfig.from_pretrained(model_dir)
 model = AutoModelForCausalLM.from_pretrained(
@@ -42,8 +77,8 @@ model = AutoModelForCausalLM.from_pretrained(
 # 添加LoRA适配器
 peft_config = LoraConfig(
     task_type="CAUSAL_LM",
-    r=16,
-    lora_alpha=32,
+    r=lora_rank,
+    lora_alpha=lora_alpha,
     target_modules=["gate_proj", "up_proj", "down_proj", "lm_head"],
     modules_to_save=["embed_tokens", "norm"],
 )
@@ -52,57 +87,43 @@ lora_model.print_trainable_parameters()
 lora_model.gradient_checkpointing = True
 
 # 优化器设置
-# optimizer = AdamW(lora_model.parameters(), lr=1e-5)
-optimizer = bnb.optim.AdamW8bit(lora_model.parameters(), lr=1e-5)
+optimizer = bnb.optim.AdamW8bit(lora_model.parameters(), lr=lr)
 
 # 数据加载
-# def load_jsonl_data(file_path):
-#     data = []
-#     with open(file_path, "r") as f:
-#         for line in f:
-#             data.append(json.loads(line))
-#     return data
-#
-#dataset = load_jsonl_data("./datasets/OpenR1-Math-220k/train-00000-of-00010.jsonl")
 with open("question_in_levels.json", "r", encoding="utf8") as f:
     data = json.load(f)
 
 dataset = QuestionIterator(
     data_dict=data,
-    max_epochs=2,
-    sample_counts={"easy": 2, "medium": 2, "hard":1},
+    max_epochs=max_epochs,
+    sample_counts=sample_counts,
     base_category="medium"
 )
 
-
-# 生成配置
-start_to_punish = 800
-max_new_tokens = 1000
-
-gen_config = GenerationConfig.from_pretrained(model_dir)
-gen_config.max_new_tokens = max_new_tokens
-gen_config.temperature = 0.7
-gen_config.do_sample = True
-gen_config.num_return_sequences = 20
-gen_config.use_cache = True
-
-
 # RL
-def get_log_softmax_on_out(model, original_inputs: dict, outputs: str):
-    inputs = tokenizer([outputs], return_tensors="pt", max_length=1500, truncation=True).to(model.device)
-    inputs = lora_model.prepare_inputs_for_generation(**inputs)
+def get_log_softmax_mean_on_out(model, original_inputs: dict, outputs: str):
+    if isinstance(outputs, str):
+        outputs = [outputs]
+    inputs = tokenizer(outputs, return_tensors="pt", padding=True, max_length=1500, truncation=True).to(model.device)
+    inputs = model.prepare_inputs_for_generation(**inputs)
     output = model(**inputs) # 为节省内存，重算一遍
     shifted_logits = output.logits[:, :-1, :]
     shifted_ids = inputs["input_ids"][:, 1:]
     log_softmax = selective_log_softmax(shifted_logits, shifted_ids)
-    original_length = len(original_inputs["input_ids"][0])
-    return log_softmax[0, original_length+1:]
 
-def loss_grdpo(model, inputs: dict, good: str, bad: str, step_size, beta):
-    good_prob = get_log_softmax_on_out(model, inputs, good).mean()
-    bad_prob = get_log_softmax_on_out(model, inputs, bad).mean()
+    original_len = original_inputs["attention_mask"].shape[1]
+    shifted_mask = inputs["attention_mask"][:, 1:] # follow shifted_ids
+    bz, max_output_length = inputs["attention_mask"].shape
+    shifted_pos = torch.arange(0, max_output_length, device=model.device)[1:].repeat(bz, 1)
+    shifted_mask = torch.where(shifted_pos < original_len, 0, shifted_mask)
+    outs = (log_softmax * shifted_mask).sum(dim=-1) / (shifted_mask.sum(dim=-1))
+    return outs
+
+def loss_grdpo(model, inputs: dict, good: str, bads: List[str], beta):
+    good_prob = -get_log_softmax_mean_on_out(model, inputs, good)[0]
+    bad_prob = -get_log_softmax_mean_on_out(model, inputs, bads)
     logsig = logsigmoid(beta * (good_prob - bad_prob))
-    return (-logsig) / step_size
+    return -logsig
 
 # 辅助函数
 def form_prompt(item):
@@ -149,24 +170,25 @@ def calculate_rewards(inputs, responses, item, tokenizer):
     rewards = []
     inputs_length = len(inputs["input_ids"][0])
     out_lengths = [len(tokenizer.encode(resp)) for resp in responses]
-    print(f"out lengths: {out_lengths}")
+    
     lengths = [out_len - inputs_length for out_len in out_lengths]
 
     for resp, length in zip(responses, lengths):
         reward = response_reward(item, resp, length)
         rewards.append(reward)
-    return rewards
+    return rewards, lengths
+
 
 # 训练循环
-save_per_groups = 10
-question_group_size = 5
-total_steps = 0
 os.makedirs("outputs", exist_ok=True)
 
 for group_idx, group_items in enumerate(dataset):
     step_id = group_idx
     optimizer.zero_grad()
+
     total_loss = 0.0
+    all_rewards = []
+    all_lengths = []
     
     for item in group_items:
         # 生成样本
@@ -174,6 +196,8 @@ for group_idx, group_items in enumerate(dataset):
         print(repr(item["problem"][:100]+"...") if len(item["problem"]) > 100 else "")
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
         
+        gc.collect()
+        torch.cuda.empty_cache()
         lora_model.eval()
         with torch.no_grad():
             outputs = lora_model.generate(
@@ -185,8 +209,11 @@ for group_idx, group_items in enumerate(dataset):
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
         # 计算奖励并排序
-        rewards = calculate_rewards(inputs, responses, item, tokenizer)
-        print(f"rewards: {[float(r) for r in rewards]}")
+        rewards, lengths = calculate_rewards(inputs, responses, item, tokenizer)
+        all_rewards += rewards
+        all_lengths += lengths
+        print(f"rewards: {[f"{float(r):.3f}" for r in rewards]}")
+        print(f"out lengths: {lengths}")
         sorted_pairs = sorted(zip(responses, rewards), key=lambda x: -x[1])
         sorted_responses = [x[0] for x in sorted_pairs]
         
@@ -197,17 +224,16 @@ for group_idx, group_items in enumerate(dataset):
         lora_model.train()
         # 计算损失
         for good in tqdm(good_responses):
-            for bad in bad_responses:
+            for i in range(0, len(bad_responses), loss_compute_group_size):
+                bads_group = bad_responses[i:i+loss_compute_group_size]
                 gc.collect()
                 torch.cuda.empty_cache()
                 loss = loss_grdpo(
-                    lora_model,
-                    inputs,
+                    lora_model, inputs,
                     good=good,
-                    bad=bad,
-                    step_size=1,
+                    bads=bads_group,
                     beta=0.1
-                )
+                ).sum()
                 loss.backward()
                 total_loss += float(loss)
     
@@ -216,13 +242,22 @@ for group_idx, group_items in enumerate(dataset):
     torch.cuda.empty_cache()
     torch.nn.utils.clip_grad_norm_(lora_model.parameters(), max_norm=1.0)
     optimizer.step()
-    
+
     # 记录日志
     avg_loss = total_loss / (len(group_items) * len(good_responses) * len(bad_responses))
     print(f"Group {step_id} Loss: {avg_loss:.4f}")
+    avg_reward = float(statistics.mean(all_rewards))
+    print(f"Group avg reward: {avg_reward:.3f}")
+    avg_length = float(statistics.mean(all_lengths))
+    print(f"Group avg length: {avg_length:.3f}")
+    log_writer.add_scalar("avg_loss", avg_loss)
+    log_writer.add_scalar("avg_reward", avg_reward)
+    log_writer.add_scalar("avg_length", avg_length)
     
     # 保存模型
     if step_id % save_per_groups == 0 and group_idx != 0:
         save_path = f"outputs/step_{step_id}"
         lora_model.save_pretrained(save_path, save_embedding_layers=False)
         print(f"Model saved at {save_path}")
+
+    print('-----------------------------------')
