@@ -1,5 +1,7 @@
 # GRDPO???
 
+![reward](./img/nice_step_139.png)
+
 * 硬件需求：1片4090（不过并没有用完全部的显存就是了）。
 * 基模型：Qwen2.5-1.5B-Instruct
 * 训练方式：LoRA微调

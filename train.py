@@ -27,7 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # --------------------------------------------
 # tensorboard config
-train_name = "20250313_1"
+train_name = "20250314_2"
 # 配置
 model_dir = "/home/leo/NLP/models/Qwen-VL/Qwen2.5-1.5B-Instruct"
 loss_compute_group_size = 1
@@ -43,7 +43,7 @@ lora_rank = 16
 lora_alpha = 32
 
 # RL
-beta = 0.1
+beta = 0.15
 ## 长度惩罚参数
 start_to_punish = 800
 max_new_tokens = 1000
@@ -105,27 +105,19 @@ dataset = QuestionIterator(
 )
 
 # RL
-def get_log_softmax_mean_on_out(model, original_inputs: dict, outputs: str):
-    if isinstance(outputs, str):
-        outputs = [outputs]
-    inputs = tokenizer(outputs, return_tensors="pt", padding=True, max_length=1500, truncation=True).to(model.device)
+def get_log_softmax_on_out(model, original_inputs: dict, outputs: str):
+    inputs = tokenizer([outputs], return_tensors="pt", max_length=1500, truncation=True).to(model.device)
     inputs = model.prepare_inputs_for_generation(**inputs)
     output = model(**inputs) # 为节省内存，重算一遍
     shifted_logits = output.logits[:, :-1, :]
     shifted_ids = inputs["input_ids"][:, 1:]
     log_softmax = selective_log_softmax(shifted_logits, shifted_ids)
+    original_length = len(original_inputs["input_ids"][0])
+    return log_softmax[0, original_length-1:]
 
-    original_len = original_inputs["attention_mask"].shape[1]
-    shifted_mask = inputs["attention_mask"][:, 1:] # follow shifted_ids
-    bz, max_output_length = inputs["attention_mask"].shape
-    shifted_pos = torch.arange(0, max_output_length, device=model.device)[1:].repeat(bz, 1)
-    shifted_mask = torch.where(shifted_pos < original_len, 0, shifted_mask)
-    outs = (log_softmax * shifted_mask).sum(dim=-1) / (shifted_mask.sum(dim=-1))
-    return outs
-
-def loss_grdpo(model, inputs: dict, good: str, bads: List[str], beta):
-    good_prob = -get_log_softmax_mean_on_out(model, inputs, good)[0]
-    bad_prob = -get_log_softmax_mean_on_out(model, inputs, bads)
+def loss_grdpo(model, inputs: dict, good: str, bad: str, beta):
+    good_prob = get_log_softmax_on_out(model, inputs, good).mean()
+    bad_prob = get_log_softmax_on_out(model, inputs, bad).mean()
     logsig = logsigmoid(beta * (good_prob - bad_prob))
     return -logsig
 
@@ -231,16 +223,15 @@ for group_idx, group_items in enumerate(dataset):
         lora_model.train()
         # 计算损失
         for good in tqdm(good_responses):
-            for i in range(0, len(bad_responses), loss_compute_group_size):
-                bads_group = bad_responses[i:i+loss_compute_group_size]
+            for bad in bad_responses:
                 gc.collect()
                 torch.cuda.empty_cache()
                 loss = loss_grdpo(
                     lora_model, inputs,
                     good=good,
-                    bads=bads_group,
+                    bad=bad,
                     beta=beta
-                ).sum()
+                )
                 loss.backward()
                 total_loss += float(loss)
     
