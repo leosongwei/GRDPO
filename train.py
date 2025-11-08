@@ -203,6 +203,7 @@ for group_idx, group_items in enumerate(dataset):
     all_lengths = []
     
     group_correct_ratios = []
+    group_loss_count = 0
     for item in group_items:
         # 生成样本
         prompt = form_prompt(item)
@@ -241,6 +242,7 @@ for group_idx, group_items in enumerate(dataset):
                     bad=bad,
                     beta=beta
                 )
+                group_loss_count += 1
                 loss.backward()
                 total_loss += float(loss.detach())
     
@@ -251,7 +253,7 @@ for group_idx, group_items in enumerate(dataset):
     optimizer.step()
 
     # 记录日志
-    avg_loss = total_loss / (len(group_items) * len(good_responses) * len(bad_responses))
+    avg_loss = total_loss / group_loss_count
     print(f"Step {step_id} Group Loss: {avg_loss:.4f}")
     avg_reward = float(statistics.mean(all_rewards))
     print(f"Group avg reward: {avg_reward:.3f}")
