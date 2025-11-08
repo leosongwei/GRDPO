@@ -253,7 +253,7 @@ for group_idx, group_items in enumerate(dataset):
     optimizer.step()
 
     # 记录日志
-    avg_loss = total_loss / group_loss_count
+    avg_loss = total_loss / group_loss_count if group_loss_count > 0 else 0.0
     print(f"Step {step_id} Group Loss: {avg_loss:.4f}")
     avg_reward = float(statistics.mean(all_rewards))
     print(f"Group avg reward: {avg_reward:.3f}")
