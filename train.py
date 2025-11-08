@@ -19,7 +19,8 @@ from transformers import (
     GenerationConfig,
     AutoConfig
 )
-from peft import get_peft_model, LoraConfig
+import glob
+from peft import get_peft_model, LoraConfig, PeftModel
 from torch.optim import AdamW
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 import bitsandbytes as bnb
@@ -78,16 +79,30 @@ model = AutoModelForCausalLM.from_pretrained(
     trust_remote_code=True
 )
 
-# 添加LoRA适配器
-peft_config = LoraConfig(
-    task_type="CAUSAL_LM",
-    r=lora_rank,
-    lora_alpha=lora_alpha,
-    target_modules=["gate_proj", "up_proj", "down_proj", "lm_head"],
-    modules_to_save=["embed_tokens", "norm"],
-)
-lora_model = get_peft_model(model, peft_config)
-lora_model.print_trainable_parameters()
+# 检测最新checkpoint
+loaded_from_step = 0
+checkpoint_dirs = glob.glob("outputs/step_*")
+if checkpoint_dirs:
+    latest_step = max([int(d.split("step_")[1]) for d in checkpoint_dirs])
+    latest_checkpoint = f"outputs/step_{latest_step}"
+    print(f"Found checkpoint: {latest_checkpoint}")
+    
+    # 加载checkpoint模型
+    lora_model = PeftModel.from_pretrained(model, latest_checkpoint)
+    loaded_from_step = latest_step
+    print(f"Loaded from step {loaded_from_step}")
+else:
+    # 添加LoRA适配器
+    peft_config = LoraConfig(
+        task_type="CAUSAL_LM",
+        r=lora_rank,
+        lora_alpha=lora_alpha,
+        target_modules=["gate_proj", "up_proj", "down_proj", "lm_head"],
+        modules_to_save=["embed_tokens", "norm"],
+    )
+    lora_model = get_peft_model(model, peft_config)
+    lora_model.print_trainable_parameters()
+
 lora_model.gradient_checkpointing = True
 
 # 优化器设置
@@ -195,6 +210,10 @@ os.makedirs("outputs", exist_ok=True)
 # lora_model.save_pretrained(save_path, save_embedding_layers=False)
 
 for group_idx, group_items in enumerate(dataset):
+    # 跳过已训练的步骤
+    if group_idx <= loaded_from_step:
+        continue
+    
     step_id = group_idx
     optimizer.zero_grad()
 
@@ -268,7 +287,7 @@ for group_idx, group_items in enumerate(dataset):
     log_writer.add_scalar("avg_correctness", avg_correct_ratio, global_step=step_id)
     
     # 保存模型
-    if step_id % save_per_groups == 0 and group_idx != 0:
+    if step_id % save_per_groups == 0:
         save_path = f"outputs/step_{step_id}"
         lora_model.save_pretrained(save_path, save_embedding_layers=False)
         print(f"Model saved at {save_path}")
