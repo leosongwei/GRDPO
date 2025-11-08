@@ -73,7 +73,7 @@ config = AutoConfig.from_pretrained(model_dir)
 model = AutoModelForCausalLM.from_pretrained(
     model_dir,
     config=config,
-    torch_dtype=torch.bfloat16,
+    dtype=torch.bfloat16,
     device_map="cuda",
     trust_remote_code=True
 )
@@ -248,7 +248,7 @@ for group_idx, group_items in enumerate(dataset):
                     beta=beta
                 )
                 loss.backward()
-                total_loss += float(loss)
+                total_loss += float(loss.detach())
     
     # 梯度裁剪和优化
     gc.collect()
