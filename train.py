@@ -166,19 +166,26 @@ def response_reward(item, response, length):
     reduce_length = max_new_tokens - start_to_punish
     reward_length = min(max(0.0, (reduce_length - (length - start_to_punish)) / reduce_length ), 1.0)
     response_reward = reward_correctness + (reward_has_tag + reward_tag_on_end + reward_length) / 3
-    return response_reward
+    # 返回总奖励和是否正确
+    is_correct = reward_correctness == 1.0
+    return response_reward, is_correct
 
 def calculate_rewards(inputs, responses, item, tokenizer):
     rewards = []
+    correct_count = 0
     inputs_length = len(inputs["input_ids"][0])
     out_lengths = [len(tokenizer.encode(resp)) for resp in responses]
     
     lengths = [out_len - inputs_length for out_len in out_lengths]
 
     for resp, length in zip(responses, lengths):
-        reward = response_reward(item, resp, length)
+        reward, is_correct = response_reward(item, resp, length)
         rewards.append(reward)
-    return rewards, lengths
+        if is_correct:
+            correct_count += 1
+    
+    correct_ratio = correct_count / len(responses) if responses else 0.0
+    return rewards, lengths, correct_ratio
 
 
 # 训练循环
@@ -195,6 +202,7 @@ for group_idx, group_items in enumerate(dataset):
     all_rewards = []
     all_lengths = []
     
+    group_correct_ratios = []
     for item in group_items:
         # 生成样本
         prompt = form_prompt(item)
@@ -214,9 +222,10 @@ for group_idx, group_items in enumerate(dataset):
         responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
         # 计算奖励并排序
-        rewards, lengths = calculate_rewards(inputs, responses, item, tokenizer)
+        rewards, lengths, correct_ratio = calculate_rewards(inputs, responses, item, tokenizer)
         all_rewards += rewards
         all_lengths += lengths
+        group_correct_ratios.append(correct_ratio)
         print(f"rewards: {[f'{float(r):.3f}' for r in rewards]}")
         print(f"out lengths: {lengths}")
         sorted_pairs = sorted(zip(responses, rewards), key=lambda x: -x[1])
@@ -254,9 +263,13 @@ for group_idx, group_items in enumerate(dataset):
     print(f"Group avg reward: {avg_reward:.3f}")
     avg_length = float(statistics.mean(all_lengths))
     print(f"Group avg length: {avg_length:.3f}")
+    # Calculate and print group average correct ratio
+    avg_correct_ratio = float(statistics.mean(group_correct_ratios))
+    print(f"Group avg correct ratio: {avg_correct_ratio:.3f}")
     log_writer.add_scalar("avg_loss", avg_loss, global_step=step_id)
     log_writer.add_scalar("avg_reward", avg_reward, global_step=step_id)
     log_writer.add_scalar("avg_length", avg_length, global_step=step_id)
+    log_writer.add_scalar("avg_correctness", avg_correct_ratio, global_step=step_id)
     
     # 保存模型
     if step_id % save_per_groups == 0 and group_idx != 0:
