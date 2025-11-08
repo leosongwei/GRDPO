@@ -31,7 +31,7 @@ train_name = "20250314_2"
 # 配置
 model_dir = "/home/leo/NLP/models/Qwen-VL/Qwen2.5-1.5B-Instruct"
 loss_compute_group_size = 1
-sample_counts = {"easy": 2, "medium": 2, "hard":1} # 每步题目配比
+
 save_per_groups = 10
 max_epochs = 10
 
@@ -94,14 +94,20 @@ lora_model.gradient_checkpointing = True
 optimizer = bnb.optim.AdamW8bit(lora_model.parameters(), lr=lr)
 
 # 数据加载
-with open("question_in_levels.json", "r", encoding="utf8") as f:
-    data = json.load(f)
-
-dataset = QuestionIterator(
-    data_dict=data,
-    max_epochs=max_epochs,
-    sample_counts=sample_counts,
-    base_category="medium"
+# sample_counts = {"easy": 2, "medium": 2, "hard":1} # 每步题目配比
+# with open("question_in_levels.json", "r", encoding="utf8") as f:
+#     data = json.load(f)
+# dataset = QuestionIterator(
+#     data_dict=data,
+#     max_epochs=max_epochs,
+#     sample_counts=sample_counts,
+#     base_category="medium"
+# )
+from question_iterator_math import QuestionIteratorMath
+dataset = QuestionIteratorMath(
+    jsonl_file_path="./datasets/math/train.jsonl",
+    sample_counts=5,
+    max_epochs=1
 )
 
 # RL
@@ -125,15 +131,15 @@ def loss_grdpo(model, inputs: dict, good: str, bad: str, beta):
 def form_prompt(item):
     """构造问题提示模板"""
     problem = item["problem"]
-    return f"""Please solve the following math problem:
-In the end, provide the final answer, wrapping the answer in the answer tag.
-Example: `The answer is: <answer>42</answer>`
+    return f"""
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{{ANSWER}}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
 
-Problem: {problem}
-Solution process:"""
+{problem}
+""".strip()
+
 
 def extract_answer(response):
-    match = re.findall(r"<answer>(.*?)</answer>", response, re.DOTALL)
+    match = re.findall(r"\\boxed{(.*?)}", response, re.DOTALL)
     return match[-1] if match else None
 
 def reward_answer_correct(answer_from_response, answer):
@@ -142,7 +148,7 @@ def reward_answer_correct(answer_from_response, answer):
     return 1.0 if math_verify.verify(answer_from_response, answer) else 0.0
 
 def reward_answer_tag_at_end(response):
-    match = re.match(r".*<answer>(.*?)</answer>$", response, re.DOTALL)
+    match = re.findall(r"\\boxed{(.*?)}", response, re.DOTALL)
     return 1.0 if match else 0.0
 
 def response_reward(item, response, length):
