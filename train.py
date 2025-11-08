@@ -228,17 +228,11 @@ for group_idx, group_items in enumerate(dataset):
         group_correct_ratios.append(correct_ratio)
         print(f"rewards: {[f'{float(r):.3f}' for r in rewards]}")
         print(f"out lengths: {lengths}")
-        sorted_pairs = sorted(zip(responses, rewards), key=lambda x: -x[1])
-        sorted_responses = [x[0] for x in sorted_pairs]
-        
-        # 取前5和后5
-        good_responses = sorted_responses[:10]
-        bad_responses = sorted_responses[-10:]
-        
-        lora_model.train()
-        # 计算损失
-        for good in tqdm(good_responses):
-            for bad in bad_responses:
+        resp_pairs = list(zip(responses, rewards))
+        for good, good_reward in tqdm(resp_pairs):
+            for bad, bad_reward in resp_pairs:
+                if good_reward < bad_reward:
+                    continue
                 gc.collect()
                 torch.cuda.empty_cache()
                 loss = loss_grdpo(
