@@ -10,7 +10,7 @@ from question_iterator import QuestionIterator
 from trl.trainer.utils import selective_log_softmax
 from torch.nn.utils.rnn import pad_sequence
 from torch.nn.functional import logsigmoid
-import math_verify
+
 import torch
 from tqdm import tqdm
 from transformers import (
