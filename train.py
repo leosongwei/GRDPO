@@ -3,7 +3,7 @@ import gc
 import json
 import re
 import statistics
-from typing import List
+from typing import List, Tuple, Dict
 
 from question_iterator import QuestionIterator
 
@@ -25,6 +25,10 @@ from torch.optim import AdamW
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 import bitsandbytes as bnb
 from torch.utils.tensorboard import SummaryWriter
+
+from lighteval.metrics.utils.extractive_match_utils import ExprExtractionConfig, LatexExtractionConfig, extract_target_from_pred, extract_target_from_pred, lazy_latex_regex, lazy_expr_regex
+from lighteval.utils.language import Language
+from latex2sympy2_extended import normalize_latex, latex2sympy
 
 # --------------------------------------------
 # tensorboard config
@@ -153,14 +157,55 @@ Solve the following math problem efficiently and clearly.  The last line of your
 """.strip()
 
 
-def extract_answer(response):
-    match = re.findall(r"\\boxed{(.*?)}", response, re.DOTALL)
-    return match[-1] if match else None
+def are_sympy_equal(expr1, expr2):
+    """比较两个sympy表达式是否相等"""
+    # 1. 直接比较
+    if expr1 == expr2:
+        return True
+    
+    # 2. 字符串比较（适用于符号表达式）
+    if str(expr1) == str(expr2):
+        return True
+        
+    # 3. 使用simplify比较差值
+    try:
+        from sympy import simplify
+        diff = simplify(expr1 - expr2)
+        if diff == 0:
+            return True
+    except:
+        pass
+        
+    # 4. 使用equals方法
+    try:
+        if expr1.equals(expr2):
+            return True
+    except:
+        pass
+        
+    return False
 
-def reward_answer_correct(answer_from_response, answer):
-    answer_from_response = math_verify.parse(answer_from_response)
-    answer = math_verify.parse(answer)
-    return 1.0 if math_verify.verify(answer_from_response, answer) else 0.0
+
+def extract_answer(response) -> str:
+    expr_conf = ExprExtractionConfig()
+    expr_regex: List[Tuple[re.Pattern, int]] = lazy_expr_regex(expr_conf, Language.ENGLISH)
+    latex_conf = LatexExtractionConfig(boxed_match_priority=0)
+    latex_regex: List[Tuple[re.Pattern, int]] = lazy_latex_regex(latex_conf, Language.ENGLISH)
+    
+    out = extract_target_from_pred(response, [(expr_regex, expr_conf), (latex_regex, latex_conf)])
+    return out[-1]
+
+
+def extract_gold(gold) -> str:
+    latex_conf = LatexExtractionConfig(boxed_match_priority=0)
+    normalized = normalize_latex(gold, latex_conf.normalization_config)
+    out = latex2sympy(normalized)
+    return out
+
+
+def reward_answer_correct(pred, gold):
+    result = are_sympy_equal(pred, gold)
+    return 1.0 if result else 0.0
 
 def reward_answer_tag_at_end(response):
     match = re.findall(r"\\boxed{(.*?)}", response, re.DOTALL)
@@ -169,12 +214,13 @@ def reward_answer_tag_at_end(response):
 def response_reward(item, response, length):
     prompt_text = item["problem"]
     # 正确性奖励
-    answer = extract_answer(response[len(prompt_text):])
-    reward_correctness = reward_answer_correct(answer, item["answer"]) if answer else 0.0
+    pred = extract_answer(response[len(prompt_text):])
+    gold = extract_gold(item["answer"])
+    reward_correctness = reward_answer_correct(pred, gold) if pred else 0.0
     # 格式奖励
     #   answer tag奖励
     #     1. 有answer tag
-    reward_has_tag = 1.0 if answer else 0.0
+    reward_has_tag = 1.0 if pred else 0.0
     #     2. answer tag在最后
     reward_tag_on_end = reward_answer_tag_at_end(response)
     #   长度奖励
