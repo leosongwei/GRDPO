@@ -191,9 +191,9 @@ def extract_answer(response) -> str:
     expr_regex: List[Tuple[re.Pattern, int]] = lazy_expr_regex(expr_conf, Language.ENGLISH)
     latex_conf = LatexExtractionConfig(boxed_match_priority=0)
     latex_regex: List[Tuple[re.Pattern, int]] = lazy_latex_regex(latex_conf, Language.ENGLISH)
-    
+
     out = extract_target_from_pred(response, [(expr_regex, expr_conf), (latex_regex, latex_conf)])
-    return out[-1]
+    return out[-1] if out else None
 
 
 def extract_gold(gold) -> str:
@@ -204,7 +204,10 @@ def extract_gold(gold) -> str:
 
 
 def reward_answer_correct(pred, gold):
-    result = are_sympy_equal(pred, gold)
+    try:
+        result = are_sympy_equal(pred, gold)
+    except Exception:
+        result = False
     return 1.0 if result else 0.0
 
 def reward_answer_tag_at_end(response):
@@ -216,7 +219,7 @@ def response_reward(item, response, length):
     # 正确性奖励
     pred = extract_answer(response[len(prompt_text):])
     gold = extract_gold(item["answer"])
-    reward_correctness = reward_answer_correct(pred, gold) if pred else 0.0
+    reward_correctness = reward_answer_correct(pred, gold) if pred is not None else 0.0
     # 格式奖励
     #   answer tag奖励
     #     1. 有answer tag
