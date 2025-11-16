@@ -283,6 +283,7 @@ for group_idx, group_items in enumerate(dataset):
     for item in group_items:
         gold = extract_gold(item["answer"])
         if not gold:
+            print("Can not extract gold, skip...")
             continue
         # 生成样本
         prompt = form_prompt(item)
