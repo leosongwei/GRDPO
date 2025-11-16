@@ -187,20 +187,26 @@ def are_sympy_equal(expr1, expr2):
 
 
 def extract_answer(response) -> str:
-    expr_conf = ExprExtractionConfig()
-    expr_regex: List[Tuple[re.Pattern, int]] = lazy_expr_regex(expr_conf, Language.ENGLISH)
-    latex_conf = LatexExtractionConfig(boxed_match_priority=0)
-    latex_regex: List[Tuple[re.Pattern, int]] = lazy_latex_regex(latex_conf, Language.ENGLISH)
+    try:
+        expr_conf = ExprExtractionConfig()
+        expr_regex: List[Tuple[re.Pattern, int]] = lazy_expr_regex(expr_conf, Language.ENGLISH)
+        latex_conf = LatexExtractionConfig(boxed_match_priority=0)
+        latex_regex: List[Tuple[re.Pattern, int]] = lazy_latex_regex(latex_conf, Language.ENGLISH)
 
-    out = extract_target_from_pred(response, [(expr_regex, expr_conf), (latex_regex, latex_conf)])
-    return out[-1] if out else None
+        out = extract_target_from_pred(response, [(expr_regex, expr_conf), (latex_regex, latex_conf)])
+        return out[-1] if out else None
+    except Exception:
+        return "error_answer"
 
 
 def extract_gold(gold) -> str:
-    latex_conf = LatexExtractionConfig(boxed_match_priority=0)
-    normalized = normalize_latex(gold, latex_conf.normalization_config)
-    out = latex2sympy(normalized)
-    return out
+    try:
+        latex_conf = LatexExtractionConfig(boxed_match_priority=0)
+        normalized = normalize_latex(gold, latex_conf.normalization_config)
+        out = latex2sympy(normalized)
+        return out
+    except Exception:
+        return "error_gold"
 
 
 def reward_answer_correct(pred, gold):
