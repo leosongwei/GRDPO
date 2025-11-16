@@ -312,7 +312,7 @@ for group_idx, group_items in enumerate(dataset):
         resp_pairs = list(zip(responses, rewards))
         for good, good_reward in tqdm(resp_pairs):
             for bad, bad_reward in resp_pairs:
-                if good_reward <= bad_reward and good_reward < 1.1:
+                if good_reward <= bad_reward or good_reward < 1.1:
                     continue
                 gc.collect()
                 torch.cuda.empty_cache()
