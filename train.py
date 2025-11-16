@@ -196,7 +196,7 @@ def extract_answer(response) -> str:
         out = extract_target_from_pred(response, [(expr_regex, expr_conf), (latex_regex, latex_conf)])
         return out[-1] if out else None
     except Exception:
-        return "error_answer"
+        return None
 
 
 def extract_gold(gold) -> str:
@@ -206,10 +206,12 @@ def extract_gold(gold) -> str:
         out = latex2sympy(normalized)
         return out
     except Exception:
-        return "error_gold"
+        return None
 
 
 def reward_answer_correct(pred, gold):
+    if pred is None:
+        return 0.0
     try:
         result = are_sympy_equal(pred, gold)
     except Exception:
@@ -279,6 +281,9 @@ for group_idx, group_items in enumerate(dataset):
     group_correct_ratios = []
     group_loss_count = 0
     for item in group_items:
+        gold = extract_gold(item["answer"])
+        if not gold:
+            continue
         # 生成样本
         prompt = form_prompt(item)
         print(repr(item["problem"][:100]+"...") if len(item["problem"]) > 100 else "")
