@@ -287,7 +287,7 @@ for group_idx, group_items in enumerate(dataset):
             continue
         # 生成样本
         prompt = form_prompt(item)
-        print(repr(item["problem"][:100]+"...") if len(item["problem"]) > 100 else "")
+        print(repr(item["problem"].strip()[:100]+"...") if len(item["problem"]) > 100 else len(item["problem"].strip()))
         inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048).to(model.device)
         
         gc.collect()
@@ -312,7 +312,7 @@ for group_idx, group_items in enumerate(dataset):
         resp_pairs = list(zip(responses, rewards))
         for good, good_reward in tqdm(resp_pairs):
             for bad, bad_reward in resp_pairs:
-                if good_reward <= bad_reward and good < 1.1:
+                if good_reward <= bad_reward and good_reward < 1.1:
                     continue
                 gc.collect()
                 torch.cuda.empty_cache()
