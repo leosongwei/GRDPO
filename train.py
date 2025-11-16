@@ -56,7 +56,7 @@ max_new_tokens = 1000
 # 生成配置
 gen_config = GenerationConfig.from_pretrained(model_dir)
 gen_config.max_new_tokens = max_new_tokens
-gen_config.temperature = 0.7
+gen_config.temperature = 1.0
 gen_config.do_sample = True
 gen_config.num_return_sequences = 20
 gen_config.use_cache = True
