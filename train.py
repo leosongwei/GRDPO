@@ -223,7 +223,7 @@ def response_reward(item, response, length):
     # 格式奖励
     #   answer tag奖励
     #     1. 有answer tag
-    reward_has_tag = 1.0 if pred else 0.0
+    reward_has_tag = 1.0 if pred is not None else 0.0
     #     2. answer tag在最后
     reward_tag_on_end = reward_answer_tag_at_end(response)
     #   长度奖励
