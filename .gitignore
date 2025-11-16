@@ -1,4 +1,5 @@
 outputs/
+outputs-*/
 .venv/
 __pycache__/
 draft/
