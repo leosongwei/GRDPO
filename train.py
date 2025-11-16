@@ -124,7 +124,7 @@ optimizer = bnb.optim.AdamW8bit(lora_model.parameters(), lr=lr)
 # )
 from question_iterator_math import QuestionIteratorMath
 dataset = QuestionIteratorMath(
-    jsonl_file_path=".datasets/math_train_shuffled.jsonl",
+    jsonl_file_path="./datasets/math_train_shuffled.jsonl",
     sample_counts=5,
     max_epochs=1
 )
