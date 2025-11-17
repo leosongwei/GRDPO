@@ -50,7 +50,7 @@ lora_alpha = 32
 # RL
 beta = 0.15
 ## 长度惩罚参数
-start_to_punish = 800
+start_to_punish = 400
 max_new_tokens = 1000
 
 # 生成配置
@@ -282,7 +282,7 @@ for group_idx, group_items in enumerate(dataset):
     group_loss_count = 0
     for item in group_items:
         gold = extract_gold(item["answer"])
-        if not gold:
+        if gold is None:
             print("Can not extract gold, skip...")
             continue
         # 生成样本
